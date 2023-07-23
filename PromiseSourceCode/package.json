@@ -1,0 +1,12 @@
+{
+  "name": "promisesourcecode",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "ts-node": "ts-node ./src/test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
