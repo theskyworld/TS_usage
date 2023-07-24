@@ -60,6 +60,8 @@ interface GetterTree<S, R> {
 //   rootGetters: any
 // ) => any;
 type Getter<S, R> = (state: S) => any;
+
+// for register state、getters、mutations、actions
 type TraverseChildFn<R> = (
   moduleWrapper: ModuleWrapper<any, R>,
   key: string
@@ -85,15 +87,15 @@ class Store<S = any> {
     const store = this;
     this._commit = function boundCommit(type: string, payload: any) {
       this.commit.call(store, type, payload);
-      
     };
     this._dispatch = function boundDispatch(type: string, payload: any) {
       this.dispatch.call(store, type, payload);
     };
 
-    // 注册模块
     const rootState = this.moduleCollection.root.state;
     console.log("注册模块...,rootState : ", rootState);
+    // 调用installModule()初始化根模块
+    // 并在该函数内部递归注册其所有子模块
     installModule(store, rootState, [], this.moduleCollection.root);
     console.log("注册模块之后, rootState : ", rootState);
   }
