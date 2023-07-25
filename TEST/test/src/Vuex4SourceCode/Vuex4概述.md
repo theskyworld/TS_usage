@@ -521,6 +521,489 @@ actions: {
 
 配合过程：用户在页面上发出请求；组件通过`store.dispatch()`调用 `actons` 中的异步方法，访问后端的 API 进行数据的获取；`actions` 中获取到数据之后通过`store.commit()`commit 给 `mutations` 对象中对应的方法，`mutations` 对象再把该数据传递给`state`,对`state`中的对应状态进行修改；state 通知组件，进行页面的响应式更新
 
+### 拆分 store
+
+由于所有组件的状态都会集中到一个`store`对象中进行管理，如果该对象过于庞大，则可以选择对其进行拆分处理
+
+将`state`对象拆分为多个模块，每个模块拥有自己的`state`、`getters`、`mutations`和`actions`
+
+```js
+// module1
+const state = () => {
+  return {
+    strs: ["hello", "text"],
+    age: 12,
+  };
+};
+const getters = {};
+const mutations = {
+  increment(state) {
+    state.age++;
+  },
+};
+const actions = {};
+
+export default {
+  namespaced: true,
+  state,
+  getters,
+  mutations,
+  actions,
+};
+```
+
+```js
+// module2
+
+const state = () => {
+  return {
+    name: "Alice",
+    age: 12,
+    nums: [1, 2, 3],
+    count: 1,
+  };
+};
+const getters = {};
+const mutations = {};
+const actions = {};
+
+export default {
+  namespaced: true,
+  state,
+  mutations,
+  actions,
+};
+```
+
+```js
+// index.ts
+// 根模块
+import { createStore } from "vuex";
+import module1Store from "./module1";
+import module2Store from "./module2";
+
+export const store = createStore({
+  modules: {
+    module1Store,
+    module2Store,
+  },
+});
+```
+
+访问`state`：
+
+```js
+export default {
+  setup() {
+    const name = computed(() => store.state.module2.name);
+    const age1 = computed(() => store.state.module1.age);
+    const age2 = computed(() => store.state.module2.age);
+    return {
+      name,
+      age1,
+      age2,
+    };
+  },
+};
+```
+
+##### 局部状态
+
+对于拆分出来的不同的子模块，每个子模块中的状态都是局部的
+
+模块内部的 mutation 和 getter 中接收的第一个参数`state`为当前模块中的局部状态
+
+```js
+export default {
+  state: () => {
+    return {
+      count: 0,
+    };
+  },
+  getters: {
+    doubleCount(state) {
+      console.log(state.count); // 0
+      return state.count * 2;
+    },
+  },
+  mutations: {
+    increment(state) {
+      console.log(state.count); // 0
+      state.count++;
+    },
+  },
+};
+```
+
+但是，也可以通过`rootState`属性来获取根模块中的状态:
+
+```js
+export default {
+  // ...
+  getters: {
+    sumWithRootCount(state, getters, rootState) {
+      return state.count + rootState.count;
+    },
+  },
+  actions: {
+    incrementIfOddOnRootSum({ state, commit, rootState }) {
+      if ((state.count + rootState.count) % 2 === 1) {
+        commit("increment");
+      }
+    },
+  },
+};
+```
+
+##### 命名空间
+
+通过不同子模块的命名空间，来对该模块中的局部`getters`、`mutations`和`actions`进行访问
+当一个子模块中设置了`namespaced:true`属性时，表示可以通过命名空间来对该子模块进行访问
+
+### 目录结构
+
+对于分割的多模块 store，推荐使用以下的目录结构:
+|- store
+|- index.ts 用于组装根 store，并导出
+|- getters.ts 根 getters
+|- mutations.ts 根 mutations
+|- actions.ts 根 actions
+|- modules  
+ |- module1.ts 子模块 1
+|- module2.ts 子模块 2
+|- ......
+
+### 组合式 API 写法
+
+获取 store、访问 state、commit mutation、dispatch action 等代码都书写在`setup()`函数中
+
+```js
+import { useStore } from "vuex";
+export default {
+  setup() {
+    const store = useStore();
+
+    // 访问state和getters
+    const count = computed(() => store.state.count);
+    const doubleCount = computed(() => store.getters.doubleCount);
+
+    // commit mutation
+    function increment() {
+      store.commit("increment");
+    }
+
+    // dispatch action
+    function asyncIncrement() {
+      store.dispatch("asyncIncrement");
+    }
+
+    return {
+      count,
+      doubleCount,
+    };
+  },
+};
+```
+
+### 使用插件
+
+vuex 中的插件就是一个函数
+
+##### 创建一个插件
+
+```js
+// 接收store作为唯一的参数
+const myPlugin = (store) => {
+  // 在store初始化时调用
+  store.subscribe((mutation, state) => {
+    // 每次commit mutation时调用
+    // mutation为一个{type, payload}对象
+    console.log(mutation.type);
+    console.log(mutation.payload);
+  });
+};
+```
+
+或者创建一个插件工厂函数:
+
+```js
+export default function createWebSocketPlugin(socket) {
+  // 返回一个插件函数
+  return (store) => {
+    socket.on('data', data => {
+      store.commit('receiveData', data);
+    });
+    store.subscribe(mutation => {
+      if(mutation.type === 'UPDATE_DATA) {
+        socket.emit('update', mutation.payload)
+      }
+    })
+  }
+}
+```
+
+##### 注册插件
+
+```js
+const webSocketPlugin = createWebSocketPlugin(socket);
+const store = createStore({
+  state,
+  mutations,
+  getters,
+  actions,
+  plugins: [myPlugin, webSocketPlugin],
+});
+```
+
+##### 案例
+
+生成 state 快照的插件
+
+```js
+const myPluginWithSnapshot = (store) => {
+  // 保存之前的state
+  // 使用深拷贝
+  let prevState = _.cloneDeep(store.state);
+  store.subscribe((mutation, state) => {
+    // 保存之后的state
+    let nextState = _.cloneDeep(state);
+
+    // 进行例如比较之前和之后state等的操作
+    // ...
+
+    // 更新prevState，用于下次比较
+    prevState = nextState;
+  });
+};
+
+// 结合 process.env.NODE_ENV  让该插件只在开发阶段被使用
+const store = createStore({
+  // ...
+  plugins: process.env.NODE_ENV !== "production" ? [myPluginWithSnapshot] : [],
+});
+```
+
+vuex 自带的日志插件
+
+```js
+// 通过createLogger()函数生成日志插件
+// 支持传入以下配置项
+import { createLogger } from 'vuex'
+const logger = createLogger({
+  collapsed : false, // 打印输出日志记录时是否自动展开，默认值为true。如果logger为console，底层分别调用console.groupCollapsed(为true)或者console.group(为false)
+  filter (mutation, stateBefore, stateAfter){
+    // 例如返回所有type的值不为aBlocklistedMutation的mutation
+    return mutation.type !== "aBlocklistedMutation"
+  }, // 对mutation进行过滤
+  actionFilter (action, state){}, // 对action进行过滤
+  transformer （state) {}, // 对state的日志记录进行格式化，默认对state的日志记录进行原格式返回
+  mutationTransformer (mutation){}, // 对mutation的日志记录进行格式化，默认对mutation的日志记录进行原格式返回。mutation为{type, payload}对象
+  actionTransformer (action) {}, // // 对action的日志记录进行格式化，默认对action的日志记录进行原格式返回。action为{type, payload}对象
+  logActions : true, // 是否记录actions日志,默认值为true
+  logMutations : true, // 是否记录mutations日志，默认值为true
+  logger : console // 自定义打印输出日志记录的实现方式，默认使用console，则打印输出为console.log()
+})
+
+// 注册插件
+import { createLogger } from 'vuex'
+
+const store = createStore({
+  plugins: [logger]
+  // plugins: [createLogger()]
+})
+
+// 由于该插件在底层使用了生成状态快照插件，故仅在开发环境下使用
+```
+
+### 严格模式
+
+```js
+// 开启严格模式
+const store = createStore({
+  strict: true,
+  // ...
+});
+```
+
+##### 仅在开发环境下使用严格模式
+
+严格模式会深度监测状态树来检测不合规的状态变更,确保在发布环境下关闭严格模式，以避免性能损失
+
+```js
+const store = createStore({
+  strict: process.env.NODE_ENV !== "production",
+  // ...
+});
+```
+
+##### 处理严格模式下表单报错的情况
+
+如果使用了严格模式，那么如果以下的 obj 对象来自于 store 中的`state`，那么当例如通过在输入框中输入内容对`obj.message`进行修改时将报错，由于这个修改不是在 mutation 函数中执行的
+
+```html
+<input v-model="obj.message" />
+```
+
+使用双向绑定的计算属性解决：
+
+```html
+<input v-model="message" />
+```
+
+```js
+computed: {
+  message: {
+    get () {
+      return this.$store.state.obj.message
+    },
+    set (value) {
+      this.$store.commit('updateMessage', value)
+    }
+  }
+}
+```
+
+### 测试
+
+#### 测试 getter
+
+```ts
+// getters.ts
+export const getters = {
+  filteredProducts(state: any, { filterCategory }) {
+    return state.products.filter((product: any) => {
+      return product.category === filterCategory;
+    });
+  },
+};
+```
+
+```ts
+// getters.spec.ts
+import { getters } from "../store/module1";
+
+const { filteredProducts } = getters;
+describe("getters", () => {
+  it("filteredProducts", () => {
+    // 模拟state
+    const state = {
+      products: [
+        { id: 1, title: "Apple", category: "fruit" },
+        { id: 2, title: "Orange", category: "fruit" },
+        { id: 3, title: "Carrot", category: "vegetable" },
+      ],
+    };
+    const filterCategory = "fruit";
+
+    // 测试结果
+    const result = filteredProducts(state, { filterCategory });
+
+    // 断言结果
+    expect(result).toEqual([
+      { id: 1, title: "Apple", category: "fruit" },
+      { id: 2, title: "Orange", category: "fruit" },
+    ]);
+  });
+});
+```
+
+#### 测试 mutation
+
+```ts
+// mutations.ts
+export const mutations = {
+  increment(state: any) {
+    state.count++;
+  },
+};
+```
+
+```ts
+// mutations.spec.ts
+import { mutations } from "../store/module1";
+
+const { increment } = mutations;
+describe("mutations", () => {
+  it("increment", () => {
+    const state = { count: 0 };
+    increment(state);
+    expect(state.count).toBe(1);
+  });
+});
+```
+
+#### 测试action
+
+### TS类型
+添加自定义的类型声明文件
+```ts
+// vuex.d.ts
+import { Store } from 'vuex'
+
+declare module '@vue/runtime-core' {
+  // 自定义的state类型
+  interface State {
+    count : number,
+    name : string,
+    age : number,
+    // ...
+  }
+  // ...
+
+  // 为this.$store提供类型声明
+  interface ComponentCustomProperties {
+    $store : Store<State>,
+  }
+}
+```
+`useStore()`函数的类型声明
+```ts
+// store/index.ts
+import { InjectionKey } from 'vue'
+import { createStore, Store } from 'vuex'
+
+// 定义state类型
+export interface State {
+  count : number,
+}
+
+// 定义injection key 用于useStore()
+export const key : InjectionKey<Store<State>> = Symbol();
+
+export const store = createStore<State>({
+  state: {
+    count: 0
+  }
+})
+```
+将store和key注册到vue应用：
+```ts
+// main.ts
+// main.ts
+import { createApp } from 'vue'
+import { store, key } from './store'
+
+const app = createApp({ ... })
+
+// 传入 injection key
+app.use(store, key)
+
+app.mount('#app')
+```
+组件中使用:
+```ts
+import { useStore } from 'vuex'
+import { key } from './store'
+
+export default {
+  setup () {
+    const store = useStore(key)
+
+    store.state.count // 类型为 number
+  }
+}
+```
+
 ### 源码架构
 
 ##### Store 类
