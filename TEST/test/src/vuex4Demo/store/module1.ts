@@ -6,8 +6,8 @@ const state = () => {
   };
 };
 export const getters = {
-  filteredProducts(state :any, { filterCategory  }) {
-    return state.products.filter((product : any) => {
+  filteredProducts(state: any, { filterCategory }: { filterCategory  : any}) {
+    return state.products.filter((product: any) => {
       return product.category === filterCategory;
     });
   },
